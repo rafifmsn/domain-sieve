@@ -63,7 +63,7 @@ def enrich_candidates_csv(
                     snippet = f"{artifact_data.get('title', '')}\n{artifact_data.get('markdown', '')}"[:1200]
 
             prompt = (
-                "Berikan ringkasan bukti maksimal 140 karakter dalam Bahasa Indonesia untuk laporan Komdigi, "
+                "Berikan ringkasan bukti maksimal 140 karakter dalam Bahasa Indonesia untuk laporan pemblokiran situs ilegal, "
                 "serta tag mekanisme singkat (contoh: slot_gacor, qris_depo, pinjol_ilegal, phishing_login).\n"
                 f"URL: {row.get('submit_url')}\nKategori: {row.get('category')}\nCuplikan:\n{snippet}\n"
                 'Balas JSON: {"note_id": "...", "mechanism_tag": "..."}'

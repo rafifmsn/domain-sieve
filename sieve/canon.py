@@ -1,4 +1,4 @@
-"""Hackathon-exact URL validation and canonicalization."""
+"""Deterministic URL validation and canonicalization."""
 
 from __future__ import annotations
 
@@ -55,9 +55,9 @@ def _is_valid_hostname(host: str) -> bool:
 
 
 def validate_and_canonicalize(raw_url: str) -> CanonResult | None:
-    """Validate hackathon entry rules and compute the exact canonical key.
+    """Validate URL constraints and compute the exact canonical key.
 
-    Returns None if the URL violates any competition constraint:
+    Returns None if the URL violates any constraint:
     - Non-empty string with length <= 300 and no whitespace/control chars
     - Scheme http:// or https:// (or bare domain/path without scheme)
     - No port, no user:pass@, no raw IP/IPv6, no localhost

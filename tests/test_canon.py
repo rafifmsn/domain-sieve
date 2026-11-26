@@ -1,4 +1,4 @@
-"""Unit and boundary tests for hackathon URL validation and canonicalization."""
+"""Unit and boundary tests for URL validation and canonicalization."""
 
 from __future__ import annotations
 

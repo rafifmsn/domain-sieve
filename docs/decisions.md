@@ -5,16 +5,16 @@ Record of production design choices and rejected alternatives for `domain-sieve`
 ## Scope & Language Handling
 
 - **Multilingual illegal scope with Indonesian priority tagging:**
-  Hackathon rules accept illegal sites globally without restricting domains to `.id`.
-  `NliClassifier` (`MoritzLaurer/bge-m3-zeroshot-v2.0`) classifies pages across 100+ languages while `detect_indonesian_targeting` sets `is_id_targeted` (checking `.id` TLDs, Indonesian payment rails such as QRIS/GoPay/OVO/DANA/BCA/BRI/Mandiri, `+62` contacts, and Indonesian copy) so `sieve.export` prioritizes highest-relevance Komdigi targets first.
+  Illegal websites routinely rotate across `.com`, `.xyz`, `.vip`, `.site`, and `.bet` domains while mixing Indonesian, English, and global copy.
+  `NliClassifier` (`MoritzLaurer/bge-m3-zeroshot-v2.0`) classifies pages across 100+ languages while `detect_indonesian_targeting` sets `is_id_targeted` (checking `.id` TLDs, Indonesian payment rails such as QRIS/GoPay/OVO/DANA/BCA/BRI/Mandiri, `+62` contacts, and Indonesian copy) so `sieve.export` prioritizes Indonesian-targeted sites first.
 - **Targeted slang normalization over bulk dictionary rewriting:**
   Evaluating `_SLANG_REPLACEMENTS` on `data/eval/benchmark_set.jsonl` showed that rewriting standard dictionary words or injecting English tokens into Indonesian text degrades NLI `Macro F1`.
-  Normalization is therefore restricted to obfuscated leetspeak (`jud0l`, `g4c0r`, `b0kep`) and local underworld jargon (`rungkad`, `nawala`, `galbay`, `open bo`, `vcs`), using pure Indonesian expansions.
+  Normalization is therefore restricted to obfuscated leetspeak (`jud0l`, `g4c0r`, `b0kep`) and local jargon (`rungkad`, `nawala`, `galbay`, `open bo`, `vcs`), using pure Indonesian expansions.
 
 ## DNS Resolution Policy
 
-- **Default to local ISP DNS with an optional `--doh` toggle:**
-  Using ISP DNS in `prefilter_live_targets` drops domains already blocked by Komdigi TrustPositif (`nxdomain` or sinkhole IPs) before opening Chromium tabs, guaranteeing captured hits are currently reachable in Indonesia and lowering overlap with public blocklists.
+- **Default to local DNS with an optional `--doh` toggle:**
+  Using the host's local resolver in `prefilter_live_targets` drops already-sinkholed or NXDOMAIN domains before opening Chromium tabs, ensuring captured hits are live under standard local resolution.
   Passing `--doh` switches both `resolve_host_ips` (via `https://1.1.1.1/dns-query`) and Chromium resolver args to Cloudflare DoH without maintaining dual-query fallback logic.
 
 ## Discovery, Deduplication & Backpressure
@@ -27,13 +27,13 @@ Record of production design choices and rejected alternatives for `domain-sieve`
   This preserves `seen_keys` deduplication history, avoids SQLite WAL delete churn, and keeps crawling focused on newly issued certificates.
 - **`O(1)` `canonical_key` state instead of timestamp-only cursors:**
   `canonical_key` serves as the SQLite `PRIMARY KEY` and is preloaded into an in-memory `set[str]` (`seen_keys`), dropping cross-source duplicates and rapid restarts in `O(1)` time while `status = 'queued'` supports clean crash resumption.
-- **Skip public malware/phish dumps (`URLhaus`, `OpenPhish`, `PhishTank`):**
-  Public dumps suffer high `Duplikat` collisions across competing teams and skew away from Indonesian-targeted illegal sites.
+- **Skip generic public malware/phish dumps (`URLhaus`, `OpenPhish`, `PhishTank`):**
+  Public bulk feeds skew heavily toward stale global compromised CMS paths and high duplicate overlap.
 
 ## Fetching & Concurrency
 
 - **Single `crawl4ai` renderer preceded by parallel async DNS/TCP liveness checks:**
-  Modern *judol* mirrors and AMP cloakers frequently use client-side JS redirects, SPA frameworks, or browser checks where raw `httpx` fetches fail or return empty shells.
+  Modern gambling mirrors and AMP cloakers frequently use client-side JS redirects, SPA frameworks, or browser checks where raw `httpx` fetches fail or return empty shells.
   Maintaining one `crawl4ai` pool (`--disable-gpu`, `image`/`media`/`font`/`stylesheet` route blocking, `max_pages_before_recycle=300`) eliminates dual-extractor drift, while concurrent DNS + parallel `443`/`80` TCP probing (`timeout_s=1.5`) filters dead hosts cheaply beforehand.
 - **Continuous `crawl_one` workers over `arun_many` batch barriers:**
   Batch `arun_many` stalls all browser tabs until the slowest `page_timeout` in a batch expires.
@@ -47,12 +47,12 @@ Record of production design choices and rejected alternatives for `domain-sieve`
   We rejected multimodal VLM/OCR pipelines, local XGBoost Gate B cascades, and hot-path generative LLMs to keep latency low and failure modes minimal.
   On `data/eval/benchmark_set.jsonl` (60 samples), local `MoritzLaurer/bge-m3-zeroshot-v2.0` FP16 (`log_odds` + `softmax` with intent-aligned hypotheses) achieved `Precision = 0.8750`, `Recall = 0.9333`, `Binary F1 = 0.9032`, `Macro F1 = 0.7378`, `p50 = 163.38ms`, and `$0.00` marginal cost.
   `--classifier nli` is locked as the default while `JevClassifier` (`jev-1.14.0`) remains available via `--classifier jev`.
-- **Out-of-band DeepSeek Uncensored enrichment:**
+- **Out-of-band LLM enrichment:**
   `sieve/enrich.py` isolates generative LLM annotation (`note_140_id`, `mechanism_tag`) strictly to post-export CSVs so API latency and uncalibrated outputs never affect the crawl/classification hot path.
 
-## Storage, Observability & Submission
+## Storage, Observability & Export
 
 - **Time- and category-sharded JSON artifacts + Rich live telemetry:**
   Partitioning scraped outputs under `data/scraped/<YYYY-MM-DD>/<category>/<hash[:2]>/<canonical_hash>.json` keeps directory indexes fast, while `metrics.jsonl`, `errors.jsonl`, and the `rich.live.Live` terminal UI expose real-time stage liveness and throughput.
-- **Manual bulk submission via 20-URL batch files:**
-  `sieve/export.py` emits validated `batch_XXXX.txt` files (max 20 URLs each) and `candidates.csv` without automating POST requests or pre-check scraping against the hackathon form.
+- **Clean 20-URL batch export without automated form submission:**
+  `sieve/export.py` emits validated `batch_XXXX.txt` files (max 20 URLs each) and `candidates.csv` without coupling collection to downstream submission endpoints.

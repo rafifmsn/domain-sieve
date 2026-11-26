@@ -1,6 +1,6 @@
 # Architecture Overview
 
-`domain-sieve` is a single-node asynchronous pipeline designed for continuous or bounded collection sessions on a Linux workstation without container orchestration or external message brokers.
+`domain-sieve` is a single-node asynchronous pipeline designed for continuous or bounded collection sessions on a dedicated workstation or server without container orchestration or external message brokers.
 
 ## End-to-End Sequence
 
@@ -22,7 +22,7 @@ sequenceDiagram
     P->>C: Buffered live_queue (up to 48 targets)
     C->>C: 14 crawl_one workers (--disable-gpu, assets aborted, 70% RAM gate)
     C->>M: Pruned Markdown (title, meta, headings, body excerpt)
-    M->>M: Micro-batched NliClassifier (RTX 3050 FP16) or JevClassifier
+    M->>M: Micro-batched NliClassifier (CUDA FP16) or JevClassifier
     M->>F: Write sharded JSON artifact, update metrics.jsonl & Rich dashboard
     M->>D: Cross-domain outbound links (when confidence >= 0.70)
     S->>E: Export classified hits into 20-URL .txt batches & candidates.csv
@@ -30,7 +30,7 @@ sequenceDiagram
 
 ## Canonicalization & Persistence
 
-`validate_and_canonicalize` in `sieve/canon.py` enforces competition constraints (`http`/`https`, maximum 300 characters, no embedded credentials, no ports, no raw IPs, no `localhost`) and generates the exact `canonical_key` (strip scheme, strip leading `www.` only, lowercase hostname, strip query and fragment, strip trailing `/`, preserve case-sensitive path) plus its `canonical_hash` (`SHA-256`).
+`validate_and_canonicalize` in `sieve/canon.py` enforces strict URL constraints (`http`/`https`, maximum 300 characters, no embedded credentials, no ports, no raw IPs, no `localhost`) and generates the normalized `canonical_key` (strip scheme, strip leading `www.` only, lowercase hostname, strip query and fragment, strip trailing `/`, preserve case-sensitive path) plus its `canonical_hash` (`SHA-256`).
 
 `SieveStore` in `sieve/store.py` manages a SQLite WAL database (`data/sieve.db`) with four tables (`urls`, `runs`, `eval_runs`, `source_cursors`).
 On startup, `SieveStore` preloads all `canonical_key` values into an in-memory `seen_keys` set so `enqueue_many` rejects cross-source duplicates and rapid restart overlaps in `O(1)` time before touching SQLite.
@@ -48,7 +48,7 @@ On startup, `SieveStore` preloads all `canonical_key` values into an in-memory `
 ## Pre-Filter & Continuous Crawl Pool
 
 `prefilter_live_targets` in `sieve/crawler.py` probes queued URLs before launching browser work.
-DNS resolution defaults to local ISP DNS (`aiodns`) so Komdigi TrustPositif blocks resolve fast as `nxdomain` or known sinkhole IPs (`TRUSTPOSITIF_SINKHOLE_IPS`); passing `--doh` switches both `resolve_host_ips` and Chromium DNS flags to `1.1.1.1`.
+DNS resolution defaults to local resolver (`aiodns`) so ISP/TrustPositif-blocked hosts fail fast as `nxdomain` or known sinkhole IPs (`TRUSTPOSITIF_SINKHOLE_IPS`); passing `--doh` switches both `resolve_host_ips` and Chromium DNS flags to `1.1.1.1`.
 `check_tcp_liveness` probes ports `443` and `80` concurrently (`timeout_s=1.5`) so dead hosts drop before claiming a browser tab.
 
 `CrawlPool` maintains one headless Chromium instance (`--disable-gpu`, `memory_saving_mode=True`, `max_pages_before_recycle=300`) and installs a Playwright `on_page_context_created` route handler aborting `image`, `media`, `font`, and `stylesheet` requests.
@@ -69,12 +69,12 @@ Before inference, `normalize_indonesian_slang` expands obfuscated leetspeak (`ju
 `write_sharded_artifact` in `sieve/metrics.py` stores full extraction payloads under `data/scraped/<YYYY-MM-DD>/<category>/<hash[:2]>/<canonical_hash>.json` so directory listings remain small across tens of thousands of artifacts.
 `RunMetricsTracker` appends periodic snapshots to `data/runs/<YYYY-MM-DD>/<run_id>/metrics.jsonl`, logs failures to `errors.jsonl`, and drives `build_live_dashboard` (`rich.live.Live` terminal telemetry in `sieve/run.py`).
 
-`export_batches` in `sieve/export.py` queries unexported `status = 'classified'` hits above `--min-confidence` (default `0.70`, ordered by `is_id_targeted DESC, confidence DESC`), re-validates all competition URL constraints, writes max-20 URL `.txt` files alongside `candidates.csv`, and atomically marks rows `status = 'exported'`.
+`export_batches` in `sieve/export.py` queries unexported `status = 'classified'` hits above `--min-confidence` (default `0.70`, ordered by `is_id_targeted DESC, confidence DESC`), re-validates all URL constraints, writes max-20 URL `.txt` files alongside `candidates.csv`, and atomically marks rows `status = 'exported'`.
 `enrich_candidates_csv` in `sieve/enrich.py` runs out-of-band against an OpenAI-compatible `DEEPSEEK_BASE_URL` endpoint to add 140-character Indonesian notes (`note_140_id`), `mechanism_tag`, and `enrichment_audit.jsonl`.
 
-## Hardware & Runtime Profile
+## Runtime Profile
 
-Tested on Fedora 45 (AMD Ryzen 5 6600H, 14.9 GiB RAM, NVIDIA RTX 3050 6 GB VRAM):
+Measured on a single CUDA-enabled machine (15 GiB RAM, 6 GB VRAM GPU, 12-thread CPU):
 
 - **GPU Classifier (`bge-m3-zeroshot-v2.0` FP16):** ~`1.1-1.5 GB` VRAM, ~`163-190ms` median latency per page, `$0.00` marginal cost.
 - **Process Footprint (`CrawlPool` + Python orchestrator + `seen_keys`):** ~`1.9 GB` RSS total, constrained below `70%` system RAM.

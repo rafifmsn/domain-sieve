@@ -5,27 +5,28 @@
 ![Crawl4AI](https://img.shields.io/badge/renderer-crawl4ai-0b6e65)
 ![License MIT](https://img.shields.io/badge/license-MIT-slate)
 
-`domain-sieve` is a single-node illegal-website discovery, rendering, and classification pipeline built for the Hackathon Berantas Web Ilegal di Indo (IMPHNEN, Dec 5-10, 2026).
-It runs locally on a developer laptop (Fedora 45, Ryzen 5 6600H, 14.9 GiB RAM, RTX 3050 6 GB VRAM) to ingest live Certificate Transparency (CT) logs, filter active domains via async DNS/TCP checks, render pages through a shared Chromium pool (`crawl4ai`), classify multilingual illegal sites (`judol`, `pinjol`, `phishing_scam`, `adult_ilegal`, `other_ilegal`) with local FP16 zero-shot NLI inference (`MoritzLaurer/bge-m3-zeroshot-v2.0`), and export deduplicated 20-URL submission batches with sharded evidence artifacts.
+`domain-sieve` is a hardware-agnostic, single-node pipeline for automated discovery, browser rendering, and multilingual classification of illegal websites.
+Built to saturate a single dedicated machine without cluster brokers or container orchestration, it ingests live Certificate Transparency (CT) logs, filters live hosts via async DNS/TCP checks, renders targets through a shared headless Chromium pool (`crawl4ai`), classifies pages across `judol`, `pinjol`, `phishing_scam`, `adult_ilegal`, and `other_ilegal` using FP16 zero-shot NLI (`MoritzLaurer/bge-m3-zeroshot-v2.0`), and exports deduplicated 20-URL batches with sharded JSON artifacts.
 
 ## Motivation
 
-Server-scale OSINT and threat platforms evaluated in [repo-analysis.html](repo-analysis.html) rely on heavy multi-container stacks (Elasticsearch, Neo4j, Redis, RabbitMQ, MinIO) that exhaust laptop memory and omit competition-specific URL canonicalization, Indonesian slang normalization, and 20-link batch export workflows.
-`domain-sieve` replaces distributed broker overhead, multimodal VLM/OCR pipelines, and external CT daemons with one self-contained Python pipeline optimized for O(1) cross-run deduplication, continuous worker concurrency, and verifiable per-run metrics.
+Server-scale OSINT and threat platforms evaluated in [repo-analysis.html](repo-analysis.html) rely on heavy multi-container stacks (Elasticsearch, Neo4j, Redis, RabbitMQ, MinIO) that overtax single-machine memory and omit deterministic URL canonicalization, Indonesian slang normalization, and compact batch export workflows.
+`domain-sieve` replaces distributed broker overhead, multimodal VLM/OCR pipelines, and external CT daemons with one self-contained Python pipeline optimized for O(1) cross-run deduplication, continuous worker concurrency, and verifiable per-run telemetry.
 
 ## Architecture Overview
 
-```text
-[1. Discovery] ---------> [2. Canon & Store] -----> [3. Async Gate & Crawl] ---> [4. Classifier & Store] ---> [5. Export & Enrich]
-  - Direct RFC 6962 CT      - Exact hackathon         - Parallel DNS + TCP         - Micro-batched NLI          - 20-URL .txt batches
-    logs (nimbus2026/27)      canonical key             443/80 liveness            (RTX 3050 FP16)            - candidates.csv
-  - Cross-domain ring       - SQLite WAL +            - 14 crawl_one workers     - Sharded JSON artifacts     - Optional DeepSeek
-    links + dnstwist          O(1) seen_keys set        (assets aborted)         - Rich live dashboard          Uncensored notes
+```mermaid
+flowchart LR
+    D["1. Discovery (CT Logs, Ring, dnstwist)"] --> S["2. Canon and Store (SQLite WAL, O(1) Set)"]
+    S --> P["3. DNS/TCP Gate and Crawl4AI (14 Workers)"]
+    P --> M["4. Zero-Shot NLI (FP16) and Sharded JSON"]
+    M --> E["5. 20-URL Batch Export and CSV Enricher"]
 ```
 
 ![Evaluation and Throughput Summary](docs/assets/eval_benchmark.png)
 
-Details on module boundaries, state transitions, and architectural trade-offs live in [docs/architecture.md](docs/architecture.md), [docs/decisions.md](docs/decisions.md), and [docs/hackathon-rules.md](docs/hackathon-rules.md).
+Benchmarks above were measured on a single CUDA-enabled machine (15 GiB RAM, 6 GB VRAM GPU, 12-thread CPU).
+Details on module boundaries, state transitions, and architectural trade-offs live in [docs/architecture.md](docs/architecture.md) and [docs/decisions.md](docs/decisions.md).
 
 ## Quickstart
 
@@ -37,7 +38,7 @@ cp .env.example .env
 # Run live discovery, crawling, GPU classification, and interactive Rich dashboard
 uv run python -m sieve.run
 
-# Export unexported high-confidence hits into 20-URL .txt submission batches
+# Export unexported high-confidence hits into 20-URL .txt batches
 uv run python -m sieve.export
 ```
 
