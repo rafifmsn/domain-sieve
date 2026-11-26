@@ -21,6 +21,13 @@
   A hardware-agnostic, single-node pipeline for automated discovery, browser rendering, and multilingual classification of illegal websites. It ingests live Certificate Transparency (CT) logs, filters live hosts via async DNS/TCP checks, renders targets through a shared headless Chromium pool (<code>crawl4ai</code>), classifies pages across <code>judol</code>, <code>pinjol</code>, <code>phishing_scam</code>, <code>adult_ilegal</code>, and <code>other_ilegal</code> using FP16 zero-shot NLI (<code>MoritzLaurer/bge-m3-zeroshot-v2.0</code>), and exports deduplicated 20-URL batches with sharded JSON artifacts.
 </p>
 
+<p align="center">
+  <a href="#motivation">Motivation</a> &middot;
+  <a href="#architecture-overview">Architecture Overview</a> &middot;
+  <a href="#quickstart">Quickstart</a> &middot;
+  <a href="#development--commands">Development &amp; Commands</a>
+</p>
+
 ## Motivation
 
 Server-scale OSINT and threat platforms evaluated in [repo-analysis.html](repo-analysis.html) rely on heavy multi-container stacks (Elasticsearch, Neo4j, Redis, RabbitMQ, MinIO) that overtax single-machine memory and omit deterministic URL canonicalization, Indonesian slang normalization, and compact batch export workflows.
