@@ -11,7 +11,8 @@ from sieve.classify import ClassificationResult, ClassifyInput, detect_indonesia
 from sieve.config import Settings
 from sieve.crawler import CrawlOutcome
 from sieve.export import export_batches
-from sieve.run import run_pipeline
+from sieve.metrics import RunMetricsTracker
+from sieve.run import build_live_dashboard, run_pipeline
 from sieve.store import SieveStore, UrlRecord
 
 
@@ -136,3 +137,81 @@ def test_run_pipeline_end_to_end_and_export(tmp_path: Path, monkeypatch) -> None
     assert len(run_dirs) == 1
     last_snap = json.loads(run_dirs[0].read_text(encoding="utf-8").splitlines()[-1])
     assert last_snap["counts"]["classified"] == 2
+
+
+def test_rich_live_dashboard_renders(tmp_path: Path) -> None:
+    from rich.console import Console
+
+    settings = Settings.from_env(data_dir=tmp_path / "data")
+    tracker = RunMetricsTracker(
+        runs_dir=settings.runs_dir,
+        run_id="run-ui-test",
+        mode="ctlog",
+        dns_mode="isp",
+        classifier_id="bge-m3-zeroshot-v2.0",
+    )
+    tracker.inc("ct_scanned", 500)
+    tracker.inc("discovered", 12)
+    tracker.record_hit(
+        canonical_key="slot88.xyz",
+        category="judol",
+        is_id_targeted=True,
+        confidence=0.95,
+    )
+    dash = build_live_dashboard(tracker, settings=settings, queued_count=4)
+    console = Console(record=True, width=100)
+    console.print(dash)
+    rendered = console.export_text()
+    assert "domain-sieve" in rendered
+    assert "slot88.xyz" in rendered
+    assert "judol" in rendered
+
+
+def test_run_pipeline_continuous_crawl_one_workers(tmp_path: Path, monkeypatch) -> None:
+    seed_file = tmp_path / "seeds.txt"
+    seed_file.write_text("https://slot1.xyz\nhttps://news-ok.id\n", encoding="utf-8")
+
+    async def fake_prefilter(records: Sequence[UrlRecord], **_: object):
+        return list(records), []
+
+    class _StreamingMockPool:
+        def __init__(self, **_: object) -> None:
+            pass
+
+        async def __aenter__(self) -> _StreamingMockPool:
+            return self
+
+        async def __aexit__(self, *_: object) -> None:
+            return None
+
+        async def crawl_one(self, rec: UrlRecord) -> CrawlOutcome:
+            is_slot = "slot1" in rec.canonical_key
+            return CrawlOutcome(
+                canonical_key=rec.canonical_key,
+                canonical_hash=rec.canonical_hash,
+                raw_url=rec.raw_url,
+                source=rec.source,
+                status="crawled",
+                http_status=200,
+                headers={},
+                title="Slot1 Gacor" if is_slot else "Berita Terkini",
+                markdown="Deposit QRIS slot gacor maxwin" if is_slot else "Berita ekonomi hari ini",
+                outbound_links=[],
+                latency_ms=40.0,
+            )
+
+    monkeypatch.setattr("sieve.run.prefilter_live_targets", fake_prefilter)
+    monkeypatch.setattr("sieve.run.CrawlPool", _StreamingMockPool)
+
+    settings = Settings.from_env(data_dir=tmp_path / "data")
+    counts = asyncio.run(
+        run_pipeline(
+            settings=settings,
+            classifier=_MockClassifier(),
+            seed_files=[seed_file],
+            batch_size=10,
+        )
+    )
+    assert counts["crawled"] == 2
+    assert counts["classified"] == 1
+    assert counts["benign"] == 1

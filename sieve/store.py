@@ -204,7 +204,9 @@ class SieveStore:
             """
             SELECT * FROM urls
             WHERE status = 'queued'
-            ORDER BY discovered_at ASC
+            ORDER BY
+                CASE WHEN source IN ('seed', 'ring', 'dnstwist') THEN 0 ELSE 1 END,
+                discovered_at DESC
             LIMIT ?
             """,
             (fetch_limit,),
@@ -339,6 +341,10 @@ class SieveStore:
             (canonical_key,),
         ).fetchone()
         return self._row_to_record(row) if row is not None else None
+
+    def count_queued(self) -> int:
+        row = self.conn.execute("SELECT COUNT(*) AS cnt FROM urls WHERE status = 'queued'").fetchone()
+        return int(row["cnt"]) if row is not None else 0
 
     def count_by_status(self) -> dict[str, int]:
         rows = self.conn.execute(

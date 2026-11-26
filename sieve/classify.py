@@ -44,24 +44,89 @@ CATEGORY_HYPOTHESES: dict[str, str] = {
 }
 
 _SLANG_REPLACEMENTS: tuple[tuple[re.Pattern[str], str], ...] = (
-    (re.compile(r"\bjud0l\b|\bjudol\b", re.IGNORECASE), "judi online judol"),
-    (re.compile(r"\bsl0t\b", re.IGNORECASE), "slot"),
-    (re.compile(r"\bg4c0r\b|\bgacor\b", re.IGNORECASE), "gacor slot judi"),
-    (re.compile(r"\bm4xw1n\b|\bmaxwin\b", re.IGNORECASE), "maxwin jackpot judi"),
-    (re.compile(r"\bt0gel\b|\btogel\b", re.IGNORECASE), "togel lotere judi"),
-    (re.compile(r"\bsc4tter\b", re.IGNORECASE), "scatter slot"),
-    (re.compile(r"\bp1njol\b|\bpinjol\b", re.IGNORECASE), "pinjaman online pinjol"),
+    # Judol / gambling obfuscations & jargon
+    (re.compile(r"\b(?:jud0l|judol|judi0nline)\b", re.IGNORECASE), "judi online judol"),
+    (re.compile(r"\b(?:sl0t|5lot|sl\*t)\b", re.IGNORECASE), "slot"),
+    (re.compile(r"\b(?:g4c0r|gac0r|g4cor|gacor)\b", re.IGNORECASE), "gacor slot judi"),
+    (re.compile(r"\b(?:m4xw1n|maxw1n|maxwin)\b", re.IGNORECASE), "maxwin jackpot slot judi"),
+    (re.compile(r"\b(?:t0gel|t0g3l|togel)\b", re.IGNORECASE), "togel lotere judi"),
+    (re.compile(r"\b(?:sc4tter|scater)\b", re.IGNORECASE), "scatter slot judi"),
     (re.compile(r"\bdepo\b", re.IGNORECASE), "deposit"),
     (re.compile(r"\bwd\b", re.IGNORECASE), "withdraw"),
-    (re.compile(r"\bb0kep\b|\bbokep\b", re.IGNORECASE), "pornografi dewasa"),
-    (re.compile(r"\brtp\s+live\b", re.IGNORECASE), "return to player slot judi"),
+    (
+        re.compile(r"\b(?:rtp\s+live|rtp\s+slot|bocoran\s+rtp|pola\s+gacor|pola\s+slot)\b", re.IGNORECASE),
+        "return to player slot judi",
+    ),
+    (re.compile(r"\b(?:anti\s+rungkad|rungkad)\b", re.IGNORECASE), "kalah slot judi online"),
+    (re.compile(r"\b(?:anti\s+nawala|nawala)\b", re.IGNORECASE), "blokir situs judi online"),
+    (re.compile(r"\bbo\s+(?:togel|slot|resmi|terpercaya)\b", re.IGNORECASE), "bandar online judi"),
+    (re.compile(r"\b(?:jp\s+paus|jackpot\s+paus|\bjp\b)\b", re.IGNORECASE), "jackpot menang judi"),
+    (
+        re.compile(r"\b(?:mix\s+parlay|parlay|sbobet|bandar\s+bola)\b", re.IGNORECASE),
+        "taruhan judi bola",
+    ),
+    (
+        re.compile(r"\b(?:pragmatic\s+play|pg\s+soft|habanero|spadegaming|joker123)\b", re.IGNORECASE),
+        "provider slot judi",
+    ),
+    (
+        re.compile(r"\b(?:pkv\s+games|idn\s+poker|bandarq|dominoqq|ceme\s+online)\b", re.IGNORECASE),
+        "judi poker kartu online",
+    ),
+    (re.compile(r"\b(?:sabung\s+ayam|s128|sv388)\b", re.IGNORECASE), "judi sabung ayam"),
+    (
+        re.compile(r"\b(?:colok\s+bebas|colok\s+jitu|paito\s+warna|syair\s+hk|live\s+draw\s+(?:hk|sgp|sdy)|toto\s+macau)\b", re.IGNORECASE),
+        "lotere togel judi",
+    ),
+    (
+        re.compile(r"\b(?:garansi\s+kekalahan|bonus\s+new\s+member|bonus\s+rollingan)\b", re.IGNORECASE),
+        "bonus taruhan judi",
+    ),
+    (re.compile(r"\bpulsa\s+tanpa\s+potongan\b", re.IGNORECASE), "deposit pulsa judi"),
+    # Pinjol / illegal lending obfuscations
+    (re.compile(r"\b(?:p1njol|pinjol)\b", re.IGNORECASE), "pinjaman online pinjol"),
+    (re.compile(r"\b(?:galbay|gagal\s+bayar|dc\s+lapangan)\b", re.IGNORECASE), "gagal bayar pinjaman online"),
+    (
+        re.compile(r"\b(?:dana\s+talangan|uang\s+kilat|cair\s+kilat|langsung\s+cair|tanpa\s+bi\s+checking|tanpa\s+slik)\b", re.IGNORECASE),
+        "pinjaman uang tunai cepat cair",
+    ),
+    # Phishing / scam obfuscations
+    (re.compile(r"\bd[a4]na\s+kaget\b", re.IGNORECASE), "penipuan saldo dana kaget phishing"),
+    (
+        re.compile(r"\b(?:titip\s+dana|profit\s+pasti|garansi\s+profit)\b", re.IGNORECASE),
+        "penipuan investasi profit palsu",
+    ),
+    # Adult / escort obfuscations & Indonesian slang (pure ID expansions)
+    (re.compile(r"\b(?:b0kep|b\*kep)\b", re.IGNORECASE), "pornografi video dewasa"),
+    (
+        re.compile(r"\b(?:open\s+bo|cewek\s+bo|cewe\s+bo|cewek\s+panggilan|pijat\s+plus|video\s+call\s+sex|\bvcs\b)\b", re.IGNORECASE),
+        "layanan prostitusi dewasa",
+    ),
+    (
+        re.compile(r"\b(?:colmek|ngewe|ngentot|memek|kontol|toket|tobrut|nekopoi)\b", re.IGNORECASE),
+        "konten pornografi eksplisit dewasa",
+    ),
+    # Other illegal obfuscations
+    (
+        re.compile(r"\b(?:obat\s+keras|daftar\s+g|pil\s+penggugur|obat\s+aborsi)\b", re.IGNORECASE),
+        "penjualan obat keras ilegal",
+    ),
+    (
+        re.compile(r"\b(?:ijazah\s+palsu|ijazah\s+aspal|akun\s+curian|stealer\s+logs|bank\s+logs|cvv\s+dumps)\b", re.IGNORECASE),
+        "penjualan dokumen palsu data curian ilegal",
+    ),
 )
 
 _ID_TARGET_RE = re.compile(
-    r"(?:\+62|628\d{6,}|qris|gopay|ovo|shopeepay|linkaja|mandiri|bca|bri|bni|"
-    r"rupiah|\brp\.?\s*\d|daftar\s+sekarang|deposit|withdraw|gacor|maxwin|"
-    r"togel|pinjol|pinjaman|ojk|komdigi|kominfo|indonesia|jakarta|slot\s+online|"
-    r"situs\s+resmi|link\s+alternatif|masuk\s+akun|kredit\s+cepat|cair\s+cepat)",
+    r"(?:\+62|\b628\d{6,}|\bqris\b|\bgopay\b|\bovo\b|\bshopeepay\b|\blinkaja\b|"
+    r"\b(?:via|saldo|ke)\s+dana\b|\bdana\s+kaget\b|\bmandiri\b|\bbca\b|\bbri\b|\bbni\b|\bbsi\b|"
+    r"\bbrimo\b|\bmybca\b|\blivin\b|\brupiah\b|\brp\.?\s*\d|\b\d+\s*(?:rb|ribu|jt|juta)\b|"
+    r"\bpulsa\b|\btelkomsel\b|\bdaftar\s+sekarang\b|\bminimal\s+depo(?:sit)?\b|\bwd\s+(?:kilat|cepat)\b|"
+    r"\bgacor\b|\bmaxwin\b|\btogel\b|\bjudol\b|\bjudi\b|\brungkad\b|\bnawala\b|\bpinjol\b|"
+    r"\bpinjaman\b|\bgalbay\b|\bbokep\b|\bopen\s+bo\b|\bsub\s+indo\b|\bojk\b|\bkomdigi\b|\bkominfo\b|"
+    r"\bindonesia\b|\bjakarta\b|\bsurabaya\b|\bbandung\b|\bmedan\b|\bsitus\s+resmi\b|"
+    r"\blink\s+alternatif\b|\bmasuk\s+akun\b|\bkredit\s+cepat\b|\bcair\s+cepat\b|"
+    r"\btanpa\s+(?:agunan|jaminan|potongan|ktp|survey)\b)",
     re.IGNORECASE,
 )
 

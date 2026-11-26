@@ -3,15 +3,18 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import logging
 import re
-from collections.abc import Iterable, Sequence
+import struct
+from collections.abc import Callable, Iterable
 from pathlib import Path
 from typing import Any
 
 import httpx
 import websockets
+from cryptography import x509
 
 from sieve.canon import validate_and_canonicalize
 from sieve.config import ILLEGAL_CATEGORIES
@@ -46,6 +49,32 @@ SUSPICIOUS_TLDS = frozenset(
         "pw",
         "cc",
         "ws",
+        "bid",
+        "loan",
+        "men",
+        "date",
+        "stream",
+        "download",
+        "racing",
+        "review",
+        "party",
+        "trade",
+        "webcam",
+        "porn",
+        "sex",
+        "adult",
+        "xxx",
+        "tube",
+        "cam",
+        "gdn",
+        "mom",
+        "rest",
+        "uno",
+        "ink",
+        "lol",
+        "pics",
+        "bond",
+        "quest",
     }
 )
 
@@ -59,6 +88,7 @@ BENIGN_ROOT_DOMAINS = frozenset(
         "icloud.com",
         "amazonaws.com",
         "cloudflare.com",
+        "cloudflare-dns.com",
         "github.com",
         "githubusercontent.com",
         "facebook.com",
@@ -75,23 +105,122 @@ BENIGN_ROOT_DOMAINS = frozenset(
         "linkedin.com",
         "mozilla.org",
         "w3.org",
+        "iana.org",
+        "ietf.org",
+        "pypi.org",
+        "npmjs.com",
+        "docker.com",
+        "reddit.com",
+        "stackoverflow.com",
+        "medium.com",
+        "substack.com",
+        "wordpress.org",
+        "kompas.com",
+        "detik.com",
+        "tempo.co",
+        "cnnindonesia.com",
+        "cnbcindonesia.com",
+        "tribunnews.com",
+        "liputan6.com",
+        "kumparan.com",
+        "republika.co.id",
+        "bbc.com",
+        "bbc.co.uk",
+        "reuters.com",
+        "apnews.com",
+        "nytimes.com",
+        "theguardian.com",
+        "ojk.go.id",
+        "bi.go.id",
+        "komdigi.go.id",
+        "kominfo.go.id",
+        "sfdc.net",
+        "cloudflarestorage.com",
+        "zendesk.com",
+        "microsoft-int.com",
+        "hcaptcha.com",
+        "hcaptchastatus.com",
+        "recaptcha.net",
+        "threads.com",
+        "threads.net",
+        "wa.me",
+        "discord.com",
+        "discord.gg",
+        "line.me",
+        "pinterest.com",
+        "vimeo.com",
+        "twitch.tv",
     }
 )
 
-BENIGN_TLD_SUFFIXES = (".gov", ".gov.id", ".go.id", ".edu", ".ac.id", ".mil", ".sch.id")
+BENIGN_TLD_SUFFIXES = (
+    ".gov",
+    ".gov.id",
+    ".go.id",
+    ".edu",
+    ".ac.id",
+    ".mil",
+    ".sch.id",
+    ".aws.dev",
+    ".azure.us",
+    ".internal",
+    ".local",
+    ".arpa",
+)
+
+DEFAULT_CT_LOGS = (
+    "https://ct.cloudflare.com/logs/nimbus2026/",
+    "https://ct.cloudflare.com/logs/nimbus2027/",
+)
+CT_LOG_LIST_URL = "https://www.gstatic.com/ct/log_list/v3/log_list.json"
 
 _SUSPECT_DOMAIN_TOKENS = re.compile(
-    r"(?:slot|gacor|maxwin|togel|toto|judi|judol|casino|poker|jackpot|scatter|"
-    r"zeus|olympus|pragmatic|mahjong|spaceman|rtp|depo|cuan|hoki|"
-    r"pinjol|pinjam|kredit|tunai|duit|cair|dana|"
-    r"bokep|porn|xxx|jav|sex|adult|18plus|"
-    r"login|verify|akun|resmi|claim|bonus|gift|amp|alternatif)",
+    r"(?:"
+    # Indonesian & global gambling / casino / sportsbook / togel
+    r"slot|gacor|maxwin|togel|toto|judi|judol|kasino|casino|poker|jackpot|scatter|"
+    r"zeus|olympus|pragmatic|mahjong|spaceman|sbobet|pgsoft|habanero|spadegaming|"
+    r"joker123|idnplay|idnpoker|pkvgames|bandar|parlay|mixparlay|sicbo|baccarat|"
+    r"roulette|blackjack|dominoqq|bandarq|ceme|qiuqiu|sabung|taruhan|betting|"
+    r"sportsbook|wagering|rungkad|depo|cuan|hoki|prediksi|syair|keluaran|livedraw|"
+    r"nawala|alternatif|kakekzeus|bonanza|gamble|gambling|wager|freespin|bookie|"
+    r"lotto|lottery|keno|bingo|1xbet|betway|bet365|roobet|rollbit|"
+    # Global high-volume non-English Romanized betting / loan / adult tokens
+    r"apuestas|tragamonedas|cassino|emprestimo|prestamo|putaria|novinha|"
+    r"kazino|stavki|vulkan|azino|zaim|mikrozaim|nhacai|xoso|taixiu|nohu|bahis|kumari|"
+    # Indonesian & global lending / pinjol
+    r"pinjol|pinjam|pinjaman|kredit|tunai|duit|cair|rupiah|angsuran|tenor|"
+    r"talangan|gadai|payday|cashadvance|fastcash|instantloan|microloan|quickloan|"
+    r"cashloan|uangcepat|danacepat|danakilat|galbay|"
+    # Phishing, brand impersonation, financial fraud
+    r"phish|verify|verification|verifikasi|signin|logon|suspend|unlock|"
+    r"recovery|claim|giveaway|undian|pemenang|hadiah|bansos|bantuan|tilang|etle|"
+    r"pajak|npwp|bpjs|dukcapil|brimo|mybca|livin|mandiri|shopeepay|linkaja|"
+    r"gopay|danakaget|airdrop|seedphrase|metamask|walletconnect|trustwallet|"
+    r"akun|resmi|helpdesk|"
+    # Adult / escort / illegal sexual content
+    r"bokep|porn|porno|pornografi|hentai|nsfw|adult|18plus|erotic|escort|openbo|"
+    r"cewekbo|cewebo|panggilan|ngewe|colmek|simontok|nekopoi|xnxx|xvideos|"
+    r"xhamster|chaturbate|camgirl|livecam|sexcam|milf|javsub|viral18|"
+    # Drugs, counterfeit documents, cybercrime
+    r"obatkeras|aborsi|alprazolam|narkoba|ijazahpalsu|dokumenpalsu|stealer|"
+    r"carding|cvvdump|banklog|fullz|cracked|combolist|pharma|fakeid|counterfeit"
+    r")",
+    re.IGNORECASE,
+)
+
+# Short 2-4 char tokens kept segment-bounded to avoid substring false positives
+_BOUNDED_SUSPECT_TOKENS = re.compile(
+    r"(?:^|[.\-_0-9])"
+    r"(?:bo|jp|wd|rtp|bri|bca|bni|bsi|ovo|dana|sgp|sdy|hk|4d|pkv|idn|bet|win|"
+    r"vip|sex|xxx|jav|cam|vcs|amp|apk|cvv|cc|rx)"
+    r"(?:$|[.\-_0-9])",
     re.IGNORECASE,
 )
 
 _DIGIT_MIX_RE = re.compile(r"(?:[a-z]+\d{2,}|\d{2,}[a-z]+)", re.IGNORECASE)
+_PARKING_SUBDOMAIN_RE = re.compile(r"^ww\d+\.", re.IGNORECASE)
 _ASSET_EXT_RE = re.compile(
-    r"\.(?:png|jpe?g|gif|webp|svg|ico|css|js|mjs|woff2?|ttf|eot|mp4|webm|pdf|zip)$",
+    r"\.(?:png|jpe?g|gif|webp|svg|ico|css|js|mjs|woff2?|ttf|eot|mp4|webm|pdf|zip|rss|atom|xml)$",
     re.IGNORECASE,
 )
 
@@ -109,26 +238,38 @@ def _is_benign_platform(host: str) -> bool:
 
 def is_suspect_domain(domain: str) -> bool:
     """High-recall Stage 1 pre-sieve for CertStream SANs and NRD dumps."""
-    host = domain.strip().lower().lstrip("*.")
-    canon = validate_and_canonicalize(host)
-    if canon is None:
+    host = domain.strip().lower()
+    if host.startswith("*."):
+        host = host[2:]
+    if not host or len(host) > 300:
         return False
-    clean_host = canon.host
-    if _is_benign_platform(clean_host):
+
+    if "://" in host or "/" in host:
+        canon = validate_and_canonicalize(host)
+        if canon is None:
+            return False
+        clean_host = canon.host
+    else:
+        if "." not in host or ":" in host or "@" in host or " " in host:
+            return False
+        clean_host = host[4:] if host.startswith("www.") else host
+
+    if _is_benign_platform(clean_host) or _PARKING_SUBDOMAIN_RE.match(clean_host):
         return False
 
     tld = clean_host.rsplit(".", 1)[-1]
-    sld = clean_host.split(".")[0]
+    sld = clean_host.split(".", 1)[0]
 
-    if tld in SUSPICIOUS_TLDS:
-        return True
-    if _SUSPECT_DOMAIN_TOKENS.search(clean_host):
-        return True
-    if _DIGIT_MIX_RE.search(sld):
-        return True
-    if sld.count("-") >= 2 and any(ch.isdigit() for ch in sld):
-        return True
-    return False
+    matched = (
+        tld in SUSPICIOUS_TLDS
+        or bool(_SUSPECT_DOMAIN_TOKENS.search(clean_host))
+        or bool(_BOUNDED_SUSPECT_TOKENS.search(clean_host))
+        or bool(_DIGIT_MIX_RE.search(sld))
+        or (sld.count("-") >= 2 and any(ch.isdigit() for ch in sld))
+    )
+    if not matched:
+        return False
+    return validate_and_canonicalize(clean_host) is not None
 
 
 def extract_ring_candidates(
@@ -138,6 +279,7 @@ def extract_ring_candidates(
     outbound_links: Iterable[str],
     hop_depth: int = 0,
     max_hop_depth: int = 2,
+    max_links: int = 15,
 ) -> list[str]:
     """Filter outbound links from confirmed illegal pages for bounded ring-crawling."""
     if source_category not in ILLEGAL_CATEGORIES:
@@ -155,13 +297,15 @@ def extract_ring_candidates(
             continue
         if _is_benign_platform(canon.host):
             continue
-        # Skip intra-page anchors or identical canonical host root when only path is noisy
-        if canon.host == source_host and canon.canonical_key == source_host:
+        # Only follow cross-domain links to discover mirror/affiliate domains without internal bloat
+        if canon.host == source_host:
             continue
         if canon.canonical_key in seen:
             continue
         seen.add(canon.canonical_key)
         accepted.append(canon.fetch_url)
+        if len(accepted) >= max_links:
+            break
     return accepted
 
 
@@ -325,4 +469,174 @@ async def consume_certstream(
     if buffer:
         ins, _ = store.enqueue_many(buffer)
         total_enqueued += ins
+    return total_enqueued
+
+
+def extract_domains_from_ct_entry(entry: dict[str, Any]) -> list[str]:
+    """Parse an RFC 6962 CT log entry and return suspect https:// URLs."""
+    try:
+        leaf = base64.b64decode(entry["leaf_input"])
+        if len(leaf) < 15:
+            return []
+        entry_type = struct.unpack("!H", leaf[10:12])[0]
+        if entry_type == 0:
+            cert_len = int.from_bytes(leaf[12:15], "big")
+            der = leaf[15 : 15 + cert_len]
+        elif entry_type == 1:
+            extra = base64.b64decode(entry["extra_data"])
+            cert_len = int.from_bytes(extra[0:3], "big")
+            der = extra[3 : 3 + cert_len]
+        else:
+            return []
+        cert = x509.load_der_x509_certificate(der)
+    except Exception:
+        return []
+
+    raw_domains: list[str] = []
+    try:
+        san = cert.extensions.get_extension_for_class(x509.SubjectAlternativeName).value
+        raw_domains.extend(san.get_values_for_type(x509.DNSName))
+    except x509.ExtensionNotFound:
+        pass
+    if not raw_domains:
+        for attr in cert.subject.get_attributes_for_oid(x509.NameOID.COMMON_NAME):
+            raw_domains.append(str(attr.value))
+
+    suspects: list[str] = []
+    seen: set[str] = set()
+    for dom in raw_domains:
+        cleaned = dom.strip().lower().lstrip("*.")
+        if cleaned and cleaned not in seen and is_suspect_domain(cleaned):
+            seen.add(cleaned)
+            suspects.append(f"https://{cleaned}")
+    return suspects
+
+
+async def discover_usable_ct_logs(
+    client: httpx.AsyncClient,
+    *,
+    candidates: Iterable[str] = DEFAULT_CT_LOGS,
+    max_logs: int = 3,
+) -> list[str]:
+    """Probe fallback CT logs and gstatic log_list.json for responsive RFC 6962 logs."""
+    probe_urls: list[str] = [u if u.endswith("/") else f"{u}/" for u in candidates]
+
+    try:
+        resp = await client.get(CT_LOG_LIST_URL, timeout=8.0)
+        if resp.status_code == 200:
+            data = resp.json()
+            for operator in data.get("operators", []):
+                for log_info in operator.get("logs", []):
+                    state = log_info.get("state") or {}
+                    url = str(log_info.get("url", ""))
+                    if "usable" in state and url:
+                        normalized = url if url.endswith("/") else f"{url}/"
+                        if normalized not in probe_urls:
+                            probe_urls.append(normalized)
+    except Exception as exc:
+        logger.debug("CT log list fetch skipped: %s", exc)
+
+    usable: list[str] = []
+    for url in probe_urls:
+        try:
+            sth = await client.get(f"{url}ct/v1/get-sth", timeout=5.0)
+            if sth.status_code == 200 and int(sth.json().get("tree_size", 0)) > 0:
+                usable.append(url)
+                if len(usable) >= max_logs:
+                    break
+        except Exception:
+            continue
+    return usable
+
+
+async def poll_ct_logs(
+    store: SieveStore,
+    *,
+    stop_event: asyncio.Event,
+    log_urls: Iterable[str] | None = None,
+    backfill_entries: int = 1500,
+    batch_entries: int = 256,
+    poll_interval_s: float = 2.0,
+    max_queued: int = 3000,
+    on_batch: Callable[[int, int, int, str], None] | None = None,
+    transport: httpx.AsyncBaseTransport | None = None,
+) -> int:
+    """Poll public RFC 6962 CT logs directly and enqueue suspect SAN domains."""
+    total_enqueued = 0
+    async with httpx.AsyncClient(timeout=15.0, transport=transport) as client:
+        active_logs = (
+            [u if u.endswith("/") else f"{u}/" for u in log_urls]
+            if log_urls is not None
+            else await discover_usable_ct_logs(client)
+        )
+        if not active_logs:
+            logger.warning("No responsive RFC 6962 CT logs found")
+            return 0
+
+        paused_by_backpressure = False
+        while not stop_event.is_set():
+            if store.count_queued() >= max_queued:
+                paused_by_backpressure = True
+                await asyncio.sleep(5.0)
+                continue
+
+            progressed = False
+            for log_url in active_logs:
+                if stop_event.is_set() or store.count_queued() >= max_queued:
+                    break
+                try:
+                    sth_resp = await client.get(f"{log_url}ct/v1/get-sth", timeout=8.0)
+                    sth_resp.raise_for_status()
+                    tree_size = int(sth_resp.json().get("tree_size", 0))
+                    if tree_size <= 0:
+                        continue
+
+                    cursor_name = f"ctlog:{log_url}"
+                    saved = store.get_cursor(cursor_name)
+                    cur = int(saved) if saved is not None else max(0, tree_size - backfill_entries)
+                    # Snap forward to fresh certs after downtime or backpressure pause
+                    fresh_floor = max(0, tree_size - backfill_entries)
+                    if paused_by_backpressure or cur < tree_size - (backfill_entries * 4):
+                        cur = max(cur, fresh_floor)
+
+                    while cur < tree_size and not stop_event.is_set():
+                        if store.count_queued() >= max_queued:
+                            paused_by_backpressure = True
+                            break
+                        end = min(cur + batch_entries - 1, tree_size - 1)
+                        ent_resp = await client.get(
+                            f"{log_url}ct/v1/get-entries",
+                            params={"start": cur, "end": end},
+                            timeout=15.0,
+                        )
+                        ent_resp.raise_for_status()
+                        entries = ent_resp.json().get("entries") or []
+                        if not entries:
+                            break
+
+                        candidates: list[tuple[str, str]] = []
+                        for entry in entries:
+                            for cand_url in extract_domains_from_ct_entry(entry):
+                                candidates.append((cand_url, "certstream"))
+
+                        ins, skip = store.enqueue_many(candidates) if candidates else (0, 0)
+                        total_enqueued += ins
+                        cur += len(entries)
+                        store.set_cursor(cursor_name, str(cur))
+                        progressed = True
+
+                        if on_batch is not None:
+                            on_batch(len(entries), ins, skip, log_url)
+                        await asyncio.sleep(0)
+                except asyncio.CancelledError:
+                    raise
+                except Exception as exc:
+                    logger.debug("CT log poll error (%s): %s", log_url, exc)
+
+            if paused_by_backpressure and store.count_queued() < max_queued:
+                paused_by_backpressure = False
+            if stop_event.is_set():
+                break
+            await asyncio.sleep(0.2 if progressed else poll_interval_s)
+
     return total_enqueued

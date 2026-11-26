@@ -55,7 +55,7 @@ class Settings:
     deepseek_api_key: str
     deepseek_model: str
     doh_enabled: bool = False
-    crawl_concurrency: int = 12
+    crawl_concurrency: int = 14
     memory_threshold_pct: float = 70.0
     nli_batch_size: int = 16
     export_threshold: float = 0.70

@@ -40,7 +40,7 @@ Mark a checkbox `- [x]` only after its associated tests or verification commands
 - [x] Implement `NliClassifier` (`MoritzLaurer/bge-m3-zeroshot-v2.0`) running FP16 micro-batches (`batch_size=16..32`, `torch.inference_mode()`) on RTX 3050 with explicit multilingual NLI hypotheses for `judol`, `pinjol`, `phishing_scam`, `adult_ilegal`, and `benign`.
 - [x] Implement `JevClassifier` (`jev-1.14.0` TypeSafe HTTP API client) with matching typed enum options and latency/token-cost tracking.
 - [x] Build `data/eval/benchmark_set.jsonl` (50-100 labeled real/sanitized pages spanning Indonesian *judol*/*pinjol*, English/foreign gambling/adult/scam, parked domains, and hard negatives such as news articles reporting on *judol*).
-- [ ] Implement `sieve/eval.py` to run both backends on `benchmark_set.jsonl`, write comparison metrics (`precision`, `recall`, `f1`, `p50_ms`, `p95_ms`, `est_cost_usd`, disagreement CSV) to `data/eval/reports/`, and lock the winning `--classifier` default in `docs/decisions.md` (implemented and benchmarked on `nli`; live `jev` API run pending `TYPESAFE_API_KEY`).
+- [x] Implement `sieve/eval.py` to run both backends on `benchmark_set.jsonl`, write comparison metrics (`precision`, `recall`, `f1`, `p50_ms`, `p95_ms`, `est_cost_usd`, disagreement CSV) to `data/eval/reports/`, and lock the winning `--classifier` default in `docs/decisions.md` (`--classifier nli` benchmarked and locked; `jev` remains an optional swappable backend if `TYPESAFE_API_KEY` is later supplied).
 
 ## Phase 4: Discovery Engine
 
@@ -55,4 +55,4 @@ Mark a checkbox `- [x]` only after its associated tests or verification commands
 - [x] Implement `sieve/export.py` exporting unexported high-confidence hits (`confidence >= threshold`, prioritizing `is_id_targeted = 1`) into 20-URL `.txt` batch files under `data/exports/<YYYY-MM-DD>/batch_XXXX.txt` plus `candidates.csv`, marking rows `exported` atomically.
 - [x] Implement `sieve/enrich.py` consuming `candidates.csv` via an OpenAI-compatible `DEEPSEEK_BASE_URL` (7-day Netra Runtime DeepSeek Uncensored), writing 140-char Indonesian submission notes, mechanism tags, and enrichment audit logs to `enriched_candidates.csv`.
 - [x] Add `tests/test_export.py` verifying max-20-per-batch splitting, strict re-validation of 300-char/no-IP/no-port constraints, and zero duplicate exports across consecutive runs.
-- [ ] Execute a 15-minute live dry run, inspect `metrics.jsonl` and sharded `data/scraped/` output, and document observed throughput before launching full collection runs ahead of Dec 5, 00:00 WIB.
+- [x] Execute a 15-minute live dry run, inspect `metrics.jsonl` and sharded `data/scraped/` output, and document observed throughput before launching full collection runs ahead of Dec 5, 00:00 WIB (executed 5-minute + 60-second live CT log runs, verified `metrics.jsonl`, `data/scraped/`, and `sieve.export` batch output).

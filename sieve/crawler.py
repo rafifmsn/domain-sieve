@@ -13,6 +13,7 @@ from urllib.parse import urljoin
 
 import aiodns
 import httpx
+import psutil
 
 from sieve.store import UrlRecord
 
@@ -60,6 +61,31 @@ _META_DESC_RE = re.compile(
     re.IGNORECASE,
 )
 _HEADING_RE = re.compile(r"^#{1,3}\s+.+$", re.MULTILINE)
+
+_DEAD_OR_PARKED_MARKERS = (
+    "is for sale",
+    "domain is for sale",
+    "domain parking",
+    "sedo domain",
+    "this store is unavailable",
+    "connection timed out",
+    "web server is returning an unknown error",
+    "just a moment...",
+    "attention required! | cloudflare",
+    "404 not found",
+    "page not found",
+)
+
+
+def is_dead_or_parked_page(title: str, markdown: str, min_chars: int = 60) -> bool:
+    """Filter out empty shells, redirect stubs, 4xx/5xx error pages, and parked domains."""
+    stripped_md = markdown.strip()
+    if len(stripped_md) < min_chars:
+        return True
+    combined = f"{title}\n{stripped_md[:1000]}".lower()
+    if title.strip().lower() in ("redirecting...", "not found", "error 424"):
+        return True
+    return any(marker in combined for marker in _DEAD_OR_PARKED_MARKERS)
 
 
 @dataclass(frozen=True, slots=True)
@@ -178,26 +204,39 @@ async def resolve_host_ips(
         return []
 
 
+async def _probe_tcp_port(ip: str, port: int, timeout_s: float) -> bool:
+    try:
+        _, writer = await asyncio.wait_for(
+            asyncio.open_connection(ip, port),
+            timeout=timeout_s,
+        )
+        writer.close()
+        await writer.wait_closed()
+        return True
+    except Exception:
+        return False
+
+
 async def check_tcp_liveness(
     ips: Sequence[str],
     *,
     ports: Sequence[int] = (443, 80),
-    timeout_s: float = 2.5,
+    timeout_s: float = 1.5,
 ) -> bool:
-    """Verify at least one resolved IP accepts TCP connections on 443 or 80."""
-    for ip in ips[:2]:
-        for port in ports:
-            try:
-                _, writer = await asyncio.wait_for(
-                    asyncio.open_connection(ip, port),
-                    timeout=timeout_s,
-                )
-                writer.close()
-                await writer.wait_closed()
+    """Verify at least one resolved IP accepts TCP connections on 443 or 80 concurrently."""
+    if not ips:
+        return False
+    tasks = [asyncio.create_task(_probe_tcp_port(ips[0], port, timeout_s)) for port in ports]
+    try:
+        for done in asyncio.as_completed(tasks):
+            if await done:
                 return True
-            except Exception:
-                continue
-    return False
+        return False
+    finally:
+        for task in tasks:
+            if not task.done():
+                task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
 
 
 async def prefilter_live_targets(
@@ -281,17 +320,20 @@ class CrawlPool:
         self,
         *,
         doh_enabled: bool = False,
-        concurrency: int = 12,
+        concurrency: int = 14,
         memory_threshold_pct: float = 70.0,
-        page_timeout_ms: int = 20000,
+        page_timeout_ms: int = 12000,
+        max_pages_before_recycle: int = 300,
     ) -> None:
         self.doh_enabled = doh_enabled
         self.concurrency = concurrency
         self.memory_threshold_pct = memory_threshold_pct
         self.page_timeout_ms = page_timeout_ms
+        self.max_pages_before_recycle = max_pages_before_recycle
         self._crawler: Any = None
         self._dispatcher: Any = None
         self._run_config: Any = None
+        self._sem = asyncio.Semaphore(concurrency)
 
     async def __aenter__(self) -> CrawlPool:
         from crawl4ai import AsyncWebCrawler, BrowserConfig, CacheMode, CrawlerRunConfig
@@ -300,6 +342,8 @@ class CrawlPool:
         browser_cfg = BrowserConfig(
             headless=True,
             extra_args=build_browser_args(doh_enabled=self.doh_enabled),
+            memory_saving_mode=True,
+            max_pages_before_recycle=self.max_pages_before_recycle,
             verbose=False,
         )
         self._run_config = CrawlerRunConfig(
@@ -333,6 +377,138 @@ class CrawlPool:
             await self._crawler.__aexit__(*args)
             self._crawler = None
 
+    @staticmethod
+    def _parse_crawl_result(rec: UrlRecord, res: Any, latency_ms: float) -> CrawlOutcome:
+        if not getattr(res, "success", False):
+            return CrawlOutcome(
+                canonical_key=rec.canonical_key,
+                canonical_hash=rec.canonical_hash,
+                raw_url=rec.raw_url,
+                source=rec.source,
+                status="error",
+                http_status=getattr(res, "status_code", None),
+                headers={},
+                title="",
+                markdown="",
+                outbound_links=[],
+                latency_ms=round(latency_ms, 2),
+                error_message=str(getattr(res, "error_message", "crawl failed")),
+            )
+
+        html = str(getattr(res, "html", "") or "")
+        raw_md = str(getattr(res, "markdown", "") or "")
+        metadata = getattr(res, "metadata", None) or {}
+        title = str(metadata.get("title", "") or "")
+        meta_desc = str(metadata.get("description", "") or "")
+        if not meta_desc and html:
+            m = _META_DESC_RE.search(html)
+            if m:
+                meta_desc = m.group(1)
+
+        final_url = str(getattr(res, "redirected_url", None) or getattr(res, "url", rec.raw_url))
+        http_status = getattr(res, "status_code", None)
+        headers = {
+            str(k): str(v) for k, v in (getattr(res, "response_headers", None) or {}).items()
+        }
+        if http_status is not None and int(http_status) >= 400:
+            return CrawlOutcome(
+                canonical_key=rec.canonical_key,
+                canonical_hash=rec.canonical_hash,
+                raw_url=rec.raw_url,
+                source=rec.source,
+                status="dead",
+                http_status=int(http_status),
+                headers=headers,
+                title=title,
+                markdown="",
+                outbound_links=[],
+                latency_ms=round(latency_ms, 2),
+            )
+
+        if is_trustpositif_block_page(final_url, title, raw_md or html):
+            return CrawlOutcome(
+                canonical_key=rec.canonical_key,
+                canonical_hash=rec.canonical_hash,
+                raw_url=rec.raw_url,
+                source=rec.source,
+                status="isp_blocked",
+                http_status=http_status,
+                headers=headers,
+                title=title,
+                markdown="",
+                outbound_links=[],
+                latency_ms=round(latency_ms, 2),
+            )
+
+        pruned_md = build_pruned_markdown(
+            title=title,
+            meta_description=meta_desc,
+            raw_markdown=raw_md,
+        )
+        if is_dead_or_parked_page(title, pruned_md):
+            return CrawlOutcome(
+                canonical_key=rec.canonical_key,
+                canonical_hash=rec.canonical_hash,
+                raw_url=rec.raw_url,
+                source=rec.source,
+                status="dead",
+                http_status=http_status,
+                headers=headers,
+                title=title,
+                markdown="",
+                outbound_links=[],
+                latency_ms=round(latency_ms, 2),
+            )
+
+        links = extract_outbound_links(
+            base_url=final_url,
+            crawl4ai_links=getattr(res, "links", None),
+            html=html,
+        )
+        return CrawlOutcome(
+            canonical_key=rec.canonical_key,
+            canonical_hash=rec.canonical_hash,
+            raw_url=rec.raw_url,
+            source=rec.source,
+            status="crawled",
+            http_status=http_status,
+            headers=headers,
+            title=title,
+            markdown=pruned_md,
+            outbound_links=links,
+            latency_ms=round(latency_ms, 2),
+        )
+
+    async def crawl_one(self, rec: UrlRecord) -> CrawlOutcome:
+        """Render a single live URL concurrently without waiting for batch barriers."""
+        if self._crawler is None:
+            raise RuntimeError("CrawlPool must be entered with async with")
+        while psutil.virtual_memory().percent >= self.memory_threshold_pct:
+            await asyncio.sleep(0.5)
+        async with self._sem:
+            t0 = time.perf_counter()
+            try:
+                container = await self._crawler.arun(url=rec.raw_url, config=self._run_config)
+                elapsed_ms = (time.perf_counter() - t0) * 1000.0
+                res = container[0] if isinstance(container, (list, tuple)) else container
+                return self._parse_crawl_result(rec, res, elapsed_ms)
+            except Exception as exc:
+                elapsed_ms = (time.perf_counter() - t0) * 1000.0
+                return CrawlOutcome(
+                    canonical_key=rec.canonical_key,
+                    canonical_hash=rec.canonical_hash,
+                    raw_url=rec.raw_url,
+                    source=rec.source,
+                    status="error",
+                    http_status=None,
+                    headers={},
+                    title="",
+                    markdown="",
+                    outbound_links=[],
+                    latency_ms=round(elapsed_ms, 2),
+                    error_message=str(exc),
+                )
+
     async def crawl_batch(self, records: Sequence[UrlRecord]) -> list[CrawlOutcome]:
         if not records:
             return []
@@ -357,82 +533,7 @@ class CrawlPool:
             if rec is None:
                 continue
             seen_keys.add(rec.canonical_key)
-            if not getattr(res, "success", False):
-                outcomes.append(
-                    CrawlOutcome(
-                        canonical_key=rec.canonical_key,
-                        canonical_hash=rec.canonical_hash,
-                        raw_url=rec.raw_url,
-                        source=rec.source,
-                        status="error",
-                        http_status=getattr(res, "status_code", None),
-                        headers={},
-                        title="",
-                        markdown="",
-                        outbound_links=[],
-                        latency_ms=round(per_url_ms, 2),
-                        error_message=str(getattr(res, "error_message", "crawl failed")),
-                    )
-                )
-                continue
-
-            html = str(getattr(res, "html", "") or "")
-            raw_md = str(getattr(res, "markdown", "") or "")
-            metadata = getattr(res, "metadata", None) or {}
-            title = str(metadata.get("title", "") or "")
-            meta_desc = str(metadata.get("description", "") or "")
-            if not meta_desc and html:
-                m = _META_DESC_RE.search(html)
-                if m:
-                    meta_desc = m.group(1)
-
-            final_url = str(getattr(res, "redirected_url", None) or getattr(res, "url", rec.raw_url))
-            if is_trustpositif_block_page(final_url, title, raw_md or html):
-                outcomes.append(
-                    CrawlOutcome(
-                        canonical_key=rec.canonical_key,
-                        canonical_hash=rec.canonical_hash,
-                        raw_url=rec.raw_url,
-                        source=rec.source,
-                        status="isp_blocked",
-                        http_status=getattr(res, "status_code", None),
-                        headers=dict(getattr(res, "response_headers", None) or {}),
-                        title=title,
-                        markdown="",
-                        outbound_links=[],
-                        latency_ms=round(per_url_ms, 2),
-                    )
-                )
-                continue
-
-            pruned_md = build_pruned_markdown(
-                title=title,
-                meta_description=meta_desc,
-                raw_markdown=raw_md,
-            )
-            links = extract_outbound_links(
-                base_url=final_url,
-                crawl4ai_links=getattr(res, "links", None),
-                html=html,
-            )
-            headers = {
-                str(k): str(v) for k, v in (getattr(res, "response_headers", None) or {}).items()
-            }
-            outcomes.append(
-                CrawlOutcome(
-                    canonical_key=rec.canonical_key,
-                    canonical_hash=rec.canonical_hash,
-                    raw_url=rec.raw_url,
-                    source=rec.source,
-                    status="crawled",
-                    http_status=getattr(res, "status_code", None),
-                    headers=headers,
-                    title=title,
-                    markdown=pruned_md,
-                    outbound_links=links,
-                    latency_ms=round(per_url_ms, 2),
-                )
-            )
+            outcomes.append(self._parse_crawl_result(rec, res, per_url_ms))
 
         for rec in records:
             if rec.canonical_key not in seen_keys:

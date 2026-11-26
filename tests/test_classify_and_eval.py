@@ -53,12 +53,25 @@ class _StubClassifier:
 
 
 def test_slang_normalization_and_id_targeting() -> None:
-    norm = normalize_indonesian_slang("Situs jud0l g4c0r m4xw1n depo QRIS")
+    norm = normalize_indonesian_slang(
+        "Situs jud0l g4c0r m4xw1n anti rungkad bo togel depo QRIS open bo galbay"
+    )
     assert "judi online" in norm
     assert "gacor slot judi" in norm
-    assert "maxwin jackpot judi" in norm
+    assert "maxwin jackpot slot judi" in norm
+    assert "kalah slot judi online" in norm
+    assert "bandar online judi" in norm
+    assert "layanan prostitusi dewasa" in norm
+    assert "gagal bayar pinjaman online" in norm
     assert detect_indonesian_targeting("https://slot88.xyz", norm) is True
-    assert detect_indonesian_targeting("https://royalspin.bet", "Online casino USD") is False
+    # English deposit/withdraw should not falsely trigger Indonesian targeting
+    assert (
+        detect_indonesian_targeting(
+            "https://royalspin.bet",
+            "Play slots and table games. Instant USD deposit and withdraw.",
+        )
+        is False
+    )
 
 
 def test_jev_classifier_mock_transport() -> None:

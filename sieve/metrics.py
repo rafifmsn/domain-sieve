@@ -6,6 +6,7 @@ import json
 import os
 import statistics
 import time
+from collections import deque
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -102,6 +103,7 @@ class RunMetricsTracker:
         self.errors_path = self.run_dir / "errors.jsonl"
 
         self.counts: dict[str, int] = {
+            "ct_scanned": 0,
             "discovered": 0,
             "deduped": 0,
             "dns_checked": 0,
@@ -113,8 +115,13 @@ class RunMetricsTracker:
             "exported": 0,
             "errors": 0,
         }
-        self._crawl_latencies_ms: list[float] = []
-        self._classify_latencies_ms: list[float] = []
+        self.category_counts: dict[str, int] = {}
+        self.recent_hits: deque[dict[str, Any]] = deque(maxlen=8)
+        self.last_error: str = ""
+        self.current_stage: str = "initializing"
+        self.last_activity_mono: float = self._start_mono
+        self._crawl_latencies_ms: deque[float] = deque(maxlen=2000)
+        self._classify_latencies_ms: deque[float] = deque(maxlen=2000)
         self._process = psutil.Process(os.getpid())
 
         if self.store is not None:
@@ -128,6 +135,33 @@ class RunMetricsTracker:
 
     def inc(self, key: str, amount: int = 1) -> None:
         self.counts[key] = self.counts.get(key, 0) + amount
+        if amount > 0:
+            self.last_activity_mono = time.monotonic()
+
+    def set_stage(self, stage: str) -> None:
+        self.current_stage = stage
+        self.last_activity_mono = time.monotonic()
+
+    def record_hit(
+        self,
+        *,
+        canonical_key: str,
+        category: str,
+        is_id_targeted: bool,
+        confidence: float,
+    ) -> None:
+        self.category_counts[category] = self.category_counts.get(category, 0) + 1
+        self.last_activity_mono = time.monotonic()
+        if category != "benign":
+            self.recent_hits.appendleft(
+                {
+                    "time": datetime.now(WIB).strftime("%H:%M:%S"),
+                    "category": category,
+                    "is_id": is_id_targeted,
+                    "confidence": round(confidence, 3),
+                    "key": canonical_key,
+                }
+            )
 
     def record_crawl_latency(self, latency_ms: float) -> None:
         self._crawl_latencies_ms.append(latency_ms)
@@ -137,6 +171,7 @@ class RunMetricsTracker:
 
     def log_error(self, stage: str, target: str, message: str) -> None:
         self.inc("errors")
+        self.last_error = f"[{stage}] {target}: {message[:80]}"
         entry = {
             "timestamp": now_wib_iso(),
             "run_id": self.run_id,

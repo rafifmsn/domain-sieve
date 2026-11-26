@@ -10,6 +10,7 @@ from sieve.crawler import (
     build_browser_args,
     build_pruned_markdown,
     extract_outbound_links,
+    is_dead_or_parked_page,
     is_trustpositif_block_page,
     prefilter_live_targets,
     resolve_host_ips,
@@ -50,6 +51,25 @@ def test_trustpositif_sinkhole_detection() -> None:
             "https://tokobudi.id",
             "Toko Budi",
             "Perlengkapan rumah tangga murah.",
+        )
+        is False
+    )
+
+
+def test_dead_or_parked_page_detection() -> None:
+    assert is_dead_or_parked_page("", "") is True
+    assert is_dead_or_parked_page("Redirecting...", "Redirecting...") is True
+    assert (
+        is_dead_or_parked_page(
+            "fly88app.com is for sale - Buy now for $499 | GoDaddy",
+            "fly88app.com is for sale - Buy now for $499. Get this domain today.",
+        )
+        is True
+    )
+    assert (
+        is_dead_or_parked_page(
+            "Slot88 Gacor",
+            "# Slot88 Gacor\nDaftar akun sekarang dan klaim bonus deposit harian via QRIS dan transfer bank.",
         )
         is False
     )
