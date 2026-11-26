@@ -1,12 +1,25 @@
-# domain-sieve
+<p align="center">
+  <img src="./domain-sieve-thumb.jpg" alt="Domain Sieve" width="100%" />
+</p>
 
-![Python 3.12](https://img.shields.io/badge/python-3.12-blue)
-![PyTorch CUDA](https://img.shields.io/badge/pytorch-CUDA%20FP16-ee4c2c)
-![Crawl4AI](https://img.shields.io/badge/renderer-crawl4ai-0b6e65)
-![License MIT](https://img.shields.io/badge/license-MIT-slate)
+<p align="center">
+  <a href="https://www.python.org/downloads/release/python-3120/">
+    <img src="https://img.shields.io/badge/python-3.12-blue" alt="Python 3.12" />
+  </a>
+  <a href="https://pytorch.org/">
+    <img src="https://img.shields.io/badge/pytorch-CUDA%20FP16-ee4c2c" alt="PyTorch CUDA" />
+  </a>
+  <a href="https://github.com/unclecode/crawl4ai">
+    <img src="https://img.shields.io/badge/renderer-crawl4ai-0b6e65" alt="Crawl4AI" />
+  </a>
+  <a href="./LICENSE">
+    <img src="https://img.shields.io/badge/license-MIT-slate" alt="License MIT" />
+  </a>
+</p>
 
-`domain-sieve` is a hardware-agnostic, single-node pipeline for automated discovery, browser rendering, and multilingual classification of illegal websites.
-Built to saturate a single dedicated machine without cluster brokers or container orchestration, it ingests live Certificate Transparency (CT) logs, filters live hosts via async DNS/TCP checks, renders targets through a shared headless Chromium pool (`crawl4ai`), classifies pages across `judol`, `pinjol`, `phishing_scam`, `adult_ilegal`, and `other_ilegal` using FP16 zero-shot NLI (`MoritzLaurer/bge-m3-zeroshot-v2.0`), and exports deduplicated 20-URL batches with sharded JSON artifacts.
+<p align="center">
+  A hardware-agnostic, single-node pipeline for automated discovery, browser rendering, and multilingual classification of illegal websites. It ingests live Certificate Transparency (CT) logs, filters live hosts via async DNS/TCP checks, renders targets through a shared headless Chromium pool (<code>crawl4ai</code>), classifies pages across <code>judol</code>, <code>pinjol</code>, <code>phishing_scam</code>, <code>adult_ilegal</code>, and <code>other_ilegal</code> using FP16 zero-shot NLI (<code>MoritzLaurer/bge-m3-zeroshot-v2.0</code>), and exports deduplicated 20-URL batches with sharded JSON artifacts.
+</p>
 
 ## Motivation
 
@@ -25,7 +38,7 @@ flowchart LR
 
 ![Evaluation and Throughput Summary](docs/assets/eval_benchmark.png)
 
-Benchmarks above were measured on a single CUDA-enabled machine (15 GiB RAM, 6 GB VRAM GPU, 12-thread CPU).
+Benchmarks above were measured on a single CUDA-enabled machine (15 GiB RAM, 6 GB VRAM RTX 3050, 12-thread AMD Ryzen 5 6600H).
 Details on module boundaries, state transitions, and architectural trade-offs live in [docs/architecture.md](docs/architecture.md) and [docs/decisions.md](docs/decisions.md).
 
 ## Quickstart
