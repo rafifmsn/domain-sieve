@@ -43,6 +43,7 @@ Concise record of locked architectural choices and rejected alternatives for `do
 - **Single-classifier architecture decided by an A/B eval (`bge-m3-zeroshot-v2.0` vs. `jev-1.14.0`):**
   Local `MoritzLaurer/bge-m3-zeroshot-v2.0` on the RTX 3050 6 GB GPU (FP16 micro-batches) has $0 marginal cost, no rate limits, and zero safety refusals, while hosted TypeSafe `jev-1.14.0` provides calibrated zero-shot API decisions with potential cost/rate-limit/ToS exposure.
   Rather than chaining them, we benchmark both on the same 50-100 page labeled eval set first and run only the winning backend in production.
+  Baseline eval on the 60-sample `data/eval/benchmark_set.jsonl` locked `--classifier nli` (`MoritzLaurer/bge-m3-zeroshot-v2.0` FP16) as the default (`Precision=0.8750`, `Recall=0.9333`, `Binary F1=0.9032`, `Macro F1=0.7048`, `p50=159.55ms`, `$0.00` cost); `jev-1.14.0` can be benchmarked side-by-side once `TYPESAFE_API_KEY` is provided.
 - **Keep DeepSeek Uncensored strictly out-of-band:**
   The 7-day Netra Runtime DeepSeek Uncensored access is slower and uncalibrated for hot-path classification, so it is isolated to `sieve/enrich.py` to annotate exported CSVs (140-char notes and Top-3 write-up summaries).
 

@@ -1,0 +1,16 @@
+id,url,gold_label,bge-m3-zeroshot-v2.0_pred,bge-m3-zeroshot-v2.0_conf
+eval-019,https://dana-kaget-klaim.vip,phishing_scam,judol,0.773078
+eval-023,https://crypto-airdrop-claim2026.buzz,phishing_scam,judol,0.529273
+eval-027,https://cewe-bo-jakarta.vip,adult_ilegal,phishing_scam,0.470336
+eval-031,https://jasa-ijazah-resmi.site,other_ilegal,benign,0.349493
+eval-032,https://stealer-logs-market.top,other_ilegal,phishing_scam,0.547651
+eval-033,https://kompas.com/tren/read/2026/berantas-judol,benign,judol,0.904119
+eval-034,https://detik.com/finance/waspada-pinjol-ilegal,benign,pinjol,0.753159
+eval-035,https://ojk.go.id/id/berita-dan-kegiatan/siaran-pers,benign,pinjol,0.651828
+eval-040,https://comingsoon-template.xyz,benign,pinjol,0.30045
+eval-044,https://ovo-bantuan-resmi.top,phishing_scam,benign,0.340074
+eval-046,https://jualan-akun-netflix-curian.icu,other_ilegal,phishing_scam,0.761677
+eval-049,https://github.com/security/anti-phishing-rules,benign,phishing_scam,0.548066
+eval-050,https://kopi-nusantara.id,benign,phishing_scam,0.623786
+eval-053,https://paypal-resolution-center-update.xyz,phishing_scam,benign,0.337903
+eval-055,https://fake-id-templates.pro,other_ilegal,phishing_scam,0.538664

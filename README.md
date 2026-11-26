@@ -31,16 +31,16 @@ Read these documents in order before writing implementation code:
 
 ## Current Status & Quickstart
 
-This repository currently contains only planning documentation, competition specifications, and [repo-analysis.html](repo-analysis.html); application source code has not been scaffolded yet.
-Follow [docs/implementation-plan.md](docs/implementation-plan.md) starting at Phase 0 to initialize the Python environment, build the canonicalization/store core, and run the 50-100 page classifier A/B benchmark before starting full collection runs.
+The core `sieve/` pipeline, `data/eval/benchmark_set.jsonl` (60 samples), and `tests/` suite are implemented and verified with `uv sync`, Playwright Chromium, and PyTorch CUDA (`RTX 3050`).
+Copy `.env.example` to `.env`, configure optional API keys (`TYPESAFE_API_KEY` for Jev A/B comparison, `DEEPSEEK_API_KEY` for post-export enrichment), and run `uv run pytest tests/` or `uv run python -m sieve.eval --backends nli` before starting collection runs.
 
-## Planned Development & Commands
+## Development & Commands
 
-| Task | Planned Command | Notes |
+| Task | Command | Notes |
 | :--- | :--- | :--- |
-| Setup | `uv sync` | Installs `crawl4ai`, `torch`, `transformers`, `httpx`, `pytest` |
-| Unit & Boundary Tests | `uv run pytest tests/` | Covers URL canonicalization, pre-sieve, store dedup, sharded storage |
-| Classifier A/B Eval | `uv run python -m sieve.eval` | Benchmarks `bge-m3-zeroshot-v2.0` vs `jev-1.14.0` on labeled set |
-| Pipeline Run | `uv run python -m sieve.run` | Runs discovery, crawl pool, classification, and metrics logging |
-| Batch Export | `uv run python -m sieve.export` | Writes 20-URL `.txt` submission batches and summary CSV |
-| Post-Export Enrich | `uv run python -m sieve.enrich` | Out-of-band DeepSeek Uncensored CSV annotation and write-up notes |
+| Setup | `uv sync && uv run playwright install chromium` | Installs `crawl4ai`, `torch`, `transformers`, `httpx`, `pytest`, and Chromium |
+| Unit & Boundary Tests | `uv run pytest tests/` | Covers URL canonicalization, pre-sieve, store dedup, sharded storage, export |
+| Classifier A/B Eval | `uv run python -m sieve.eval --backends nli` | Add `jev` to `--backends` once `TYPESAFE_API_KEY` is set |
+| Pipeline Run | `uv run python -m sieve.run --seed-file seeds.txt` | Supports `--certstream`, `--nrd-file`, `--crtsh`, `--dnstwist`, `--doh` |
+| Batch Export | `uv run python -m sieve.export` | Writes 20-URL `.txt` submission batches and `candidates.csv` |
+| Post-Export Enrich | `uv run python -m sieve.enrich --input data/exports/<YYYY-MM-DD>/candidates.csv` | Out-of-band DeepSeek Uncensored CSV annotation and audit log |
