@@ -1,0 +1,9 @@
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.env
+data/sieve.db*
+data/runs/
+data/scraped/
+data/exports/

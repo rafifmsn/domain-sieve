@@ -1,46 +1,67 @@
-# domain-sieve
+<p align="center">
+  <img src="./domain-sieve-thumb.jpg" alt="Domain Sieve" width="100%" />
+</p>
 
-Lightweight, single-node illegal-website discovery, rendering, and classification pipeline built for the Hackathon Berantas Web Ilegal di Indo (IMPHNEN, Dec 5-10, 2026).
-It runs natively on a developer laptop (Fedora 45, Ryzen 5 6600H, 14.9 GiB RAM, RTX 3050 6 GB VRAM) to discover active illegal domains (online gambling, illegal lending, digital fraud/phishing, and illegal adult content), extract clean Markdown via `crawl4ai`, classify targets with calibrated zero-shot inference, and export deduplicated 20-URL submission batches with full metrics and evidence artifacts.
+<p align="center">
+  <a href="https://www.python.org/downloads/release/python-3120/">
+    <img src="https://img.shields.io/badge/python-3.12-blue" alt="Python 3.12" />
+  </a>
+  <a href="https://pytorch.org/">
+    <img src="https://img.shields.io/badge/pytorch-CUDA%20FP16-ee4c2c" alt="PyTorch CUDA" />
+  </a>
+  <a href="https://github.com/unclecode/crawl4ai">
+    <img src="https://img.shields.io/badge/renderer-crawl4ai-0b6e65" alt="Crawl4AI" />
+  </a>
+  <a href="./LICENSE">
+    <img src="https://img.shields.io/badge/license-MIT-slate" alt="License MIT" />
+  </a>
+</p>
+
+<p align="center">
+  A hardware-agnostic, single-node pipeline for automated discovery, browser rendering, and multilingual classification of illegal websites. It ingests live Certificate Transparency (CT) logs, filters live hosts via async DNS/TCP checks, renders targets through a shared headless Chromium pool (<code>crawl4ai</code>), classifies pages across <code>judol</code>, <code>pinjol</code>, <code>phishing_scam</code>, <code>adult_ilegal</code>, and <code>other_ilegal</code> using FP16 zero-shot NLI (<code>MoritzLaurer/bge-m3-zeroshot-v2.0</code>), and exports deduplicated 20-URL batches with sharded JSON artifacts.
+</p>
 
 ## Motivation
 
-Existing open-source threat pipelines evaluated in [repo-analysis.html](repo-analysis.html) (IntelOwl, Lookyloo, AIL Framework, Amass, Firecrawl) target multi-node server infrastructure with heavy container stacks (Elasticsearch, Neo4j, Redis, RabbitMQ, MinIO) that overwhelm a 15 GiB laptop and leave hackathon-specific canonicalization, Indonesian/multilingual target filtering, and batch submission workflows unbuilt.
-`domain-sieve` strips out multi-container bloat, multimodal VLM/OCR overhead, and redundant fallback chains in favor of one lean pipeline optimized for precision, O(1) cross-run deduplication, measurable A/B model validation, and zero wasted crawl slots.
+Server-scale OSINT and threat platforms evaluated in [repo-analysis.html](repo-analysis.html) rely on heavy multi-container stacks (Elasticsearch, Neo4j, Redis, RabbitMQ, MinIO) that overtax single-machine memory and omit deterministic URL canonicalization, Indonesian slang normalization, and compact batch export workflows.
+`domain-sieve` replaces distributed broker overhead, multimodal VLM/OCR pipelines, and external CT daemons with one self-contained Python pipeline optimized for O(1) cross-run deduplication, continuous worker concurrency, and verifiable per-run telemetry.
 
 ## Architecture Overview
 
-```text
-[1. Discovery] --------> [2. Canon & Store] ----> [3. Crawl Pool] ------> [4. Single Classifier] ----> [5. Export & Enrich]
-  - CertStream SAN         - Exact hackathon        - Async DNS/TCP         - A/B eval winner:           - 20-URL .txt batches
-  - Ring/mirror crawl        canonical key            liveness check          bge-m3-zeroshot-v2.0         - Sharded evidence tree
-  - dnstwist variants      - SQLite WAL +           - crawl4ai (10-14         (RTX 3050 FP16) OR           - Run metrics JSONL
-  - NRD / crt.sh seeds       O(1) RAM set             tabs, no assets)        jev-1.14.0 API             - Offline DeepSeek CSV
+```mermaid
+flowchart LR
+    D["1. Discovery (CT Logs, Ring, dnstwist)"] --> S["2. Canon and Store (SQLite WAL, O(1) Set)"]
+    S --> P["3. DNS/TCP Gate and Crawl4AI (14 Workers)"]
+    P --> M["4. Zero-Shot NLI (FP16) and Sharded JSON"]
+    M --> E["5. 20-URL Batch Export and CSV Enricher"]
 ```
 
-## Documentation Index
+![Evaluation and Throughput Summary](docs/assets/eval_benchmark.png)
 
-Read these documents in order before writing implementation code:
+Benchmarks above were measured on a single CUDA-enabled machine (15 GiB RAM, 6 GB VRAM RTX 3050, 12-thread AMD Ryzen 5 6600H).
+Details on module boundaries, state transitions, and architectural trade-offs live in [docs/architecture.md](docs/architecture.md) and [docs/decisions.md](docs/decisions.md).
 
-1. [docs/hackathon-rules.md](docs/hackathon-rules.md): Official competition rules, timeline, URL validation constraints, exact `Duplikat` canonicalization spec, and submission limits.
-2. [docs/architecture.md](docs/architecture.md): Sequence diagram, module boundaries, SQLite schema, sharded artifact directory layout, metrics/evidence logging, and laptop resource budget.
-3. [docs/decisions.md](docs/decisions.md): Architectural trade-offs, dropped components, DNS strategy, discovery strategy, and classifier selection rationale.
-4. [docs/implementation-plan.md](docs/implementation-plan.md): Phased checklist, A/B benchmark protocol, required test coverage, and acceptance gates.
-5. [docs/conversation-transcript.md](docs/conversation-transcript.md): Complete verbatim planning discussion between the project owner and the planning agent.
-6. [repo-analysis.html](repo-analysis.html): Prior landscape survey across 18 open-source discovery, crawling, and threat-classification repositories.
+## Quickstart
 
-## Current Status & Quickstart
+```sh
+uv sync
+uv run playwright install chromium
+cp .env.example .env
 
-This repository currently contains only planning documentation, competition specifications, and [repo-analysis.html](repo-analysis.html); application source code has not been scaffolded yet.
-Follow [docs/implementation-plan.md](docs/implementation-plan.md) starting at Phase 0 to initialize the Python environment, build the canonicalization/store core, and run the 50-100 page classifier A/B benchmark before starting full collection runs.
+# Run live discovery, crawling, GPU classification, and interactive Rich dashboard
+uv run python -m sieve.run
 
-## Planned Development & Commands
+# Export unexported high-confidence hits into 20-URL .txt batches
+uv run python -m sieve.export
+```
 
-| Task | Planned Command | Notes |
+## Development & Commands
+
+| Task | Command | Notes |
 | :--- | :--- | :--- |
-| Setup | `uv sync` | Installs `crawl4ai`, `torch`, `transformers`, `httpx`, `pytest` |
-| Unit & Boundary Tests | `uv run pytest tests/` | Covers URL canonicalization, pre-sieve, store dedup, sharded storage |
-| Classifier A/B Eval | `uv run python -m sieve.eval` | Benchmarks `bge-m3-zeroshot-v2.0` vs `jev-1.14.0` on labeled set |
-| Pipeline Run | `uv run python -m sieve.run` | Runs discovery, crawl pool, classification, and metrics logging |
-| Batch Export | `uv run python -m sieve.export` | Writes 20-URL `.txt` submission batches and summary CSV |
-| Post-Export Enrich | `uv run python -m sieve.enrich` | Out-of-band DeepSeek Uncensored CSV annotation and write-up notes |
+| Install | `uv sync && uv run playwright install chromium` | Installs Python dependencies, CUDA PyTorch, and headless Chromium |
+| Run Pipeline | `uv run python -m sieve.run` | Auto-polls Cloudflare CT logs with live Rich terminal UI (`--doh`, `--dnstwist`, `--seed-file`, `--nrd-file`, `--no-ui`) |
+| Test Suite | `uv run pytest tests/ -v` | Runs 48 unit and integration tests covering canonicalization, store dedup, pre-filter, discovery, export, and runner |
+| Classifier Eval | `uv run python -m sieve.eval --backends nli` | Benchmarks local `bge-m3-zeroshot-v2.0` (and optional `jev` with `TYPESAFE_API_KEY`) on `data/eval/benchmark_set.jsonl` |
+| Batch Export | `uv run python -m sieve.export --min-confidence 0.70` | Writes max-20 URL `.txt` files and `candidates.csv` under `data/exports/<YYYY-MM-DD>/` |
+| CSV Enrichment | `uv run python -m sieve.enrich --input data/exports/<YYYY-MM-DD>/candidates.csv` | Appends 140-char Indonesian notes (`note_140_id`) and `mechanism_tag` using `DEEPSEEK_API_KEY` |
